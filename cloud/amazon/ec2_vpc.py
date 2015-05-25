@@ -656,6 +656,28 @@ def terminate_vpc(module, vpc_conn, vpc_id=None, cidr=None):
 
     return (changed, vpc_dict, terminated_vpc_id)
 
+def get_vpc (module, vpc_conn, vpc_id):
+
+    if vpc_id == None and cidr == None:
+        module.fail_json(
+            msg='You must specify a vpc_id, aborting'
+        )
+
+    vpc = find_vpc(module, vpc_conn, vpc_id)
+    vpc_dict = get_vpc_info(vpc)
+    created_vpc_id = vpc_id
+    returned_subnets = []
+    current_subnets = vpc_conn.get_all_subnets(filters={ 'vpc_id': vpc_id })
+
+    for sn in current_subnets:
+        returned_subnets.append({
+            'resource_tags': dict((t.name, t.value) for t in vpc_conn.get_all_tags(filters={'resource-id': sn.id})),
+            'cidr': sn.cidr_block,
+            'az': sn.availability_zone,
+            'id': sn.id,
+        })
+
+    return (vpc_dict, created_vpc_id, returned_subnets, False)
 
 def main():
     argument_spec = ec2_argument_spec()
@@ -671,7 +693,7 @@ def main():
             internet_gateway = dict(type='bool', default=False),
             resource_tags = dict(type='dict', required=True),
             route_tables = dict(type='list'),
-            state = dict(choices=['present', 'absent'], default='present'),
+            state = dict(choices=['present', 'absent', 'getinfo'], default='present'),
         )
     )
 
@@ -707,6 +729,11 @@ def main():
     elif module.params.get('state') == 'present':
         # Changed is always set to true when provisioning a new VPC
         (vpc_dict, new_vpc_id, subnets_changed, igw_id, changed) = create_vpc(module, vpc_conn)
+    elif module.params.get('state') == "getinfo":
+        vpc_id = module.params.get('vpc_id')
+        subnets_changed = None
+        changed = False
+        (vpc_dict, new_vpc_id, subnets_changed, changed) = get_vpc(module, vpc_conn, vpc_id)
 
     module.exit_json(changed=changed, vpc_id=new_vpc_id, vpc=vpc_dict, igw_id=igw_id, subnets=subnets_changed)
 
